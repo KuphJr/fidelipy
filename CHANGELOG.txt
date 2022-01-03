@@ -1,2 +1,5 @@
+ver 1.0.1:
+    Add docs requirements
+
 ver 1.0.0:
     Initial release
