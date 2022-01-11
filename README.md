@@ -47,6 +47,25 @@ with Driver(Chrome()) as driver:
 
 3. Read the [documentation](https://qnevx-fidelipy.readthedocs.io/).
 
+## Test
+
+In interactive mode, call `__enter__()` and `__exit__()` manually instead of using the
+`with` statement:
+
+```python
+>>> from fidelipy import Driver
+>>> from selenium.webdriver import Chrome
+
+>>> driver = Driver(Chrome())
+>>> driver.__enter__()
+>>> # Log in.
+
+>>> driver.cash_available_to_trade("123456789")
+>>> # More method calls.
+
+>>> driver.__exit__()
+```
+
 ## Build
 
 ### Documentation

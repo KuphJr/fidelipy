@@ -1,3 +1,6 @@
+ver 1.0.2:
+    Add test instructions
+
 ver 1.0.1:
     Add docs requirements
 
