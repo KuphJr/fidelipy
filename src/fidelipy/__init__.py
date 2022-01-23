@@ -22,18 +22,13 @@ from dataclasses import dataclass
 from decimal import ROUND_DOWN, Decimal
 from enum import Enum, auto
 from logging import getLogger
-from time import sleep
-from typing import Any
+from pathlib import Path
 
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
+from playwright.sync_api import Browser
 
 from . import _strings
 
 
-# dataclass requires Python 3.7+.
 @dataclass(frozen=True)
 class Quote:
     """Stock or ETF quote.
@@ -87,18 +82,14 @@ class Unit(Enum):
     DOLLARS = auto()
 
 
-def _validate_action(action: Action):
+def _validate_action(action: Action) -> None:
     if action not in (Action.BUY, Action.SELL):
         raise ValueError(_strings.ACTION)
 
 
-def _validate_unit(unit: Unit):
+def _validate_unit(unit: Unit) -> None:
     if unit not in (Unit.SHARES, Unit.DOLLARS):
         raise ValueError(_strings.UNIT)
-
-
-def _string(element) -> str:
-    return element.get_attribute("innerText").strip()
 
 
 def _int(string: str) -> int:
@@ -126,35 +117,32 @@ class Driver:
     """fidelity.com driver.
 
     Attributes:
-        driver: A Selenium WebDriver instance.
+        browser: The Playwright Browser_ to use.
         timeout: The time in seconds to wait for web elements to appear.  Defaults to 10
             seconds.  Must be positive.
-        delay: The time in seconds to wait for time-sensitive clicks.  This includes the
-            preview order button and mutual fund action dropdown.  Defaults to 1.0
-            seconds.  Must be nonnegative.
+
+    .. _browser: https://playwright.dev/python/docs/api/class-browser
     """
 
-    def __init__(self, driver: Any, timeout: int = 10, delay: float = 1.0):
-        self.__driver = driver
-        self.__timeout = timeout
-        self.__delay = delay
+    def __init__(self, browser: Browser, timeout: int = 10):
+        self.__browser = browser
         self.__logger = getLogger(__name__)
 
-        if self.__timeout <= 0:
+        if timeout <= 0:
             raise ValueError(_strings.DRIVER_TIMEOUT)
 
-        if self.__delay < 0.0:
-            raise ValueError(_strings.DRIVER_DELAY)
+        self.__page = self.__browser.new_page()
+        self.__page.set_default_timeout(timeout * 1000)
 
     def __enter__(self):
-        """Get the login page."""
-        self.__driver.get(_strings.LOGIN_URL)
+        """Navigate to the login page."""
+        self.__page.goto(_strings.LOGIN_URL)
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, *args) -> None:
         """Log out and close the web browser."""
-        self.__driver.get(_strings.LOGOUT_URL)
-        self.__driver.quit()
+        self.__page.goto(_strings.LOGOUT_URL)
+        self.__browser.close()
 
     def cash_available_to_trade(self, account: str) -> Decimal:
         """Return the cash available to trade in an account.
@@ -167,7 +155,7 @@ class Driver:
         """
         try:
             self.__stock_set_account(account)
-            return _decimal(_string(self.__by_class_name("funds-cash")))
+            return _decimal(self.__inner_text(".funds-cash"))
         except Exception:
             self.__logger.exception("cash available to trade cannot be found")
             raise
@@ -182,29 +170,23 @@ class Driver:
             Exception: If the quote information cannot be found.
         """
         try:
-            self.__driver.get(_strings.TRADE_STOCK_URL)
+            self.__page.goto(_strings.TRADE_STOCK_URL)
             self.__stock_set_symbol(symbol)
 
-            name = _string(self.__by_class_name("company-title"))
-            last_price = _decimal(_string(self.__by_class_name("last-price")))
+            name = self.__inner_text(".company-title")
+            last_price = _decimal(self.__inner_text(".last-price"))
 
-            elements = self.__by_class_name(
-                "eq-ticket__quote--company-symbol--pricing"
-            ).find_elements(By.CLASS_NAME, "eq-ticket__symbol__dollar_percent_chg_font")
+            changes = self.__inner_texts(".eq-ticket__symbol__dollar_percent_chg_font")
+            dollar_change = _decimal(changes[0])
+            percent_change = _decimal(changes[1])
 
-            dollar_change = _decimal(_string(elements[0]))
-            percent_change = _decimal(_string(elements[1]))
-
-            elements = self.__by_class_name(
-                "eq-ticket__quote--blocks-container"
-            ).find_elements(By.CLASS_NAME, "block-price-layout")
-
-            parts = _string(elements[0]).split("x")
+            elements = self.__inner_texts(".block-price-layout")
+            parts = elements[0].split("x")
             bid, bid_size = _decimal(parts[0]), _int(parts[1])
-            parts = _string(elements[1]).split("x")
+            parts = elements[1].split("x")
             ask, ask_size = _decimal(parts[0]), _int(parts[1])
 
-            volume = _int(_string(self.__by_class_name("block-volume")))
+            volume = _int(self.__inner_text(".block-volume"))
 
             return Quote(
                 symbol,
@@ -222,22 +204,30 @@ class Driver:
             self.__logger.exception("quote information cannot be found")
             raise
 
-    def download_positions(self) -> None:
+    def download_positions(self) -> Path:
         """Download the portfolio positions .csv file.
 
+        Returns:
+            The path to a temporary file.
+
         Raises:
-            Exception: If the positions cannot be downloaded.
+            Exception: If the file cannot be downloaded.
         """
         try:
-            self.__driver.get(_strings.POSITIONS_URL)
-            self.__by_css_selector('button[title="Download"]').click()
+            self.__page.goto(_strings.POSITIONS_URL)
+            with self.__page.expect_download() as info:
+                self.__page.click("button[title='Download']")
+            path = info.value.path()
+            if not path:
+                raise Exception
+            return path
         except Exception:
-            self.__logger.exception("positions cannot be downloaded")
+            self.__logger.exception("file cannot be downloaded")
             raise
 
     def market_order(
         self, account: str, symbol: str, action: Action, unit: Unit, quantity: str
-    ):
+    ) -> bool:
         """Place a market order for a stock or ETF.
 
         Args:
@@ -273,7 +263,7 @@ class Driver:
         unit: Unit,
         quantity: str,
         limit: str,
-    ):
+    ) -> bool:
         """Place a limit order for a stock or ETF.
 
         Args:
@@ -310,7 +300,7 @@ class Driver:
         unit: Unit,
         quantity: str,
         buffer: int = 10,
-    ):
+    ) -> bool:
         """Place a marketable limit order for a stock or ETF.
 
         Set the limit price at ask + buffer if buying.
@@ -323,7 +313,7 @@ class Driver:
             action: BUY or SELL.
             unit: SHARES or DOLLARS.
             quantity: The amount.
-            buffer: The limit price buffer in cents.  Defaults to 10.  Must be
+            buffer: The limit price buffer in cents.  Defaults to 10 cents.  Must be
                 nonnegative.
 
         Returns:
@@ -355,7 +345,7 @@ class Driver:
 
     def gtc_order(
         self, account: str, symbol: str, action: Action, shares: str, limit: str
-    ):
+    ) -> bool:
         """Place a good-til-canceled (GTC) order for a stock or ETF.
 
         Args:
@@ -383,7 +373,7 @@ class Driver:
             self.__logger.exception("good-til-canceled order failed")
             return False
 
-    def buy_mutual_fund(self, account: str, symbol: str, dollars: str):
+    def buy_mutual_fund(self, account: str, symbol: str, dollars: str) -> bool:
         """Place a buy order for a mutual fund.
 
         Args:
@@ -397,14 +387,17 @@ class Driver:
         try:
             self.__mutual_fund_set_account(account)
             self.__mutual_fund_set_symbol(symbol)
-            self.__mutual_fund_set_action(Action.BUY)
+            self.__mutual_fund_wait_for_symbol()
+            self.__mutual_fund_set_action("Buy")
             self.__mutual_fund_set_quantity(dollars)
             return self.__place_order()
         except Exception:
             self.__logger.exception("mutual fund buy order failed")
             return False
 
-    def sell_mutual_fund(self, account: str, symbol: str, unit: Unit, quantity: str):
+    def sell_mutual_fund(
+        self, account: str, symbol: str, unit: Unit, quantity: str
+    ) -> bool:
         """Place a sell order for a mutual fund.
 
         Args:
@@ -421,7 +414,8 @@ class Driver:
         try:
             self.__mutual_fund_set_account(account)
             self.__mutual_fund_set_symbol(symbol)
-            self.__mutual_fund_set_action(Action.SELL)
+            self.__mutual_fund_wait_for_symbol()
+            self.__mutual_fund_set_action("Sell")
             self.__mutual_fund_set_unit(unit)
             self.__mutual_fund_set_quantity(quantity)
             return self.__place_order()
@@ -431,7 +425,7 @@ class Driver:
 
     def exchange_mutual_fund(
         self, account: str, sell_symbol: str, unit: Unit, quantity: str, buy_symbol: str
-    ):
+    ) -> bool:
         """Place an exchange order for a mutual fund.
 
         Args:
@@ -449,109 +443,98 @@ class Driver:
         try:
             self.__mutual_fund_set_account(account)
             self.__mutual_fund_set_symbol(sell_symbol)
-            self.__mutual_fund_set_action(None)
+            self.__mutual_fund_wait_for_symbol()
+            self.__mutual_fund_set_action("Exchange")
             self.__mutual_fund_set_unit(unit)
             self.__mutual_fund_set_quantity(quantity)
             self.__mutual_fund_set_buy_symbol(buy_symbol)
+            self.__mutual_fund_wait_for_buy_symbol()
             return self.__place_order()
         except Exception:
             self.__logger.exception("mutual fund exchange order failed")
             return False
 
-    def __stock_set_account(self, account: str):
-        self.__driver.get(f"{_strings.TRADE_STOCK_URL}?ACCOUNT={account}")
+    def __inner_text(self, selector: str) -> str:
+        return self.__page.inner_text(selector).strip()
 
-    def __mutual_fund_set_account(self, account: str):
-        self.__driver.get(f"{_strings.TRADE_MUTUAL_FUND_URL}?ACCOUNT={account}")
+    # Type hint requires Python 3.9+.
+    def __inner_texts(self, selector: str) -> list[str]:
+        return [
+            text.strip() for text in self.__page.locator(selector).all_inner_texts()
+        ]
 
-    def __set_symbol(self, id: str, symbol: str):
-        symbol_input = self.__by_id(id)
-        symbol_input.clear()
-        symbol_input.send_keys(symbol)
-        symbol_input.send_keys(Keys.RETURN)
+    def __stock_set_account(self, account: str) -> None:
+        self.__page.goto(f"{_strings.TRADE_STOCK_URL}?ACCOUNT={account}")
 
-    def __stock_set_symbol(self, symbol: str):
-        self.__set_symbol("eq-ticket-dest-symbol", symbol)
+    def __mutual_fund_set_account(self, account: str) -> None:
+        self.__page.goto(f"{_strings.TRADE_MUTUAL_FUND_URL}?ACCOUNT={account}")
 
-    def __mutual_fund_set_symbol(self, symbol: str):
-        self.__set_symbol("mf-ticket-dest-symbol-Symbol", symbol)
+    def __set_symbol(self, selector: str, symbol: str) -> None:
+        symbol_input = self.__page.locator(selector)
+        symbol_input.fill(symbol)
+        symbol_input.press("Enter")
 
-    def __mutual_fund_set_buy_symbol(self, symbol: str):
-        self.__set_symbol("mf-ticket-dest-symbol-Fund to Buy", symbol)
+    def __stock_set_symbol(self, symbol: str) -> None:
+        self.__set_symbol("text=Symbol", symbol)
 
-    def __stock_set_action(self, action: Action):
+    def __mutual_fund_set_symbol(self, symbol: str) -> None:
+        self.__stock_set_symbol(symbol)
+
+    def __mutual_fund_set_buy_symbol(self, symbol: str) -> None:
+        self.__set_symbol("text=Fund to Buy", symbol)
+
+    def __mutual_fund_wait_for_symbol(self) -> None:
+        self.__page.locator(".detail-value").wait_for()
+
+    def __mutual_fund_wait_for_buy_symbol(self) -> None:
+        self.__page.locator("#mf-ticket__second-quote-box .detail-value").wait_for()
+
+    def __stock_set_action(self, action: Action) -> None:
         if action == Action.BUY:
-            self.__by_css_selector('label[for="action-buy"]').click()
+            self.__page.click("text=Buy")
         elif action == Action.SELL:
-            self.__by_css_selector('label[for="action-sell"]').click()
+            self.__page.click("text=Sell")
 
-    def __mutual_fund_set_action(self, action: Action):
-        self.__by_class_name("mf-ticket__action-dropdown").find_elements(
-            By.ID, "mf-dropdownlist-button"
-        )[0].click()
-        elements = self.__by_class_name("dropdownlist_items").find_elements(
-            By.CLASS_NAME, "dropdownlist_items--item"
-        )
-        sleep(self.__delay)
-        for element in elements:
-            buy = _string(element) == "Buy" and action == Action.BUY
-            sell = _string(element) == "Sell" and action == Action.SELL
-            exchange = _string(element) == "Exchange" and action is None
-            if buy or sell or exchange:
-                element.click()
-                break
-        sleep(self.__delay)
+    def __mutual_fund_set_action(self, action: str) -> None:
+        self.__page.click("text=Action")
+        self.__page.click(f"text={action}")
 
-    def __stock_set_unit(self, unit: Unit):
+    def __stock_set_unit(self, unit: Unit) -> None:
         if unit == Unit.SHARES:
-            self.__by_css_selector('label[for="quantity-type-shares"]').click()
+            self.__page.click("label:has-text('Shares')")
         elif unit == Unit.DOLLARS:
-            self.__by_css_selector('label[for="quantity-type-dollars"]').click()
+            self.__page.click("text=Dollars")
 
-    def __mutual_fund_set_unit(self, unit: Unit):
-        if unit == Unit.SHARES:
-            self.__by_css_selector('label[for="action-shares"]').click()
-        elif unit == Unit.DOLLARS:
-            self.__by_css_selector('label[for="action-dollar"]').click()
+    def __mutual_fund_set_unit(self, unit: Unit) -> None:
+        self.__stock_set_unit(unit)
 
-    def __set_quantity(self, id: str, quantity: str):
-        quantity_input = self.__by_id(id)
-        quantity_input.clear()
-        quantity_input.send_keys(quantity)
+    def __stock_set_quantity(self, quantity: str) -> None:
+        self.__page.fill("#eqt-shared-quantity", quantity)
 
-    def __stock_set_quantity(self, quantity: str):
-        self.__set_quantity("eqt-shared-quantity", quantity)
+    def __mutual_fund_set_quantity(self, quantity: str) -> None:
+        self.__page.fill("#mf-shared-quantity", quantity)
 
-    def __mutual_fund_set_quantity(self, quantity: str):
-        self.__set_quantity("mf-shared-quantity", quantity)
+    def __stock_set_market(self) -> None:
+        self.__page.click("label:has-text('Market')")
 
-    def __stock_set_market(self):
-        self.__by_css_selector('label[for="market-yes"]').click()
+    def __stock_set_limit(self, limit: str) -> None:
+        self.__page.click("text=Limit")
+        self.__page.fill("text=Limit Price", limit)
 
-    def __stock_set_limit(self, limit: str):
-        self.__by_css_selector('label[for="market-no"]').click()
-        limit_input = self.__by_id("eqt-ordsel-limit-price-field")
-        limit_input.clear()
-        limit_input.send_keys(limit)
+    def __stock_set_gtc(self) -> None:
+        self.__page.click("text=GTC")
 
-    def __stock_set_gtc(self):
-        self.__by_css_selector('label[for="action-gtc"]').click()
-
-    def __stock_bid_ask(self) -> tuple[int, int]:
-        elements = self.__by_class_name(
-            "eq-ticket__quote--blocks-container"
-        ).find_elements(By.CLASS_NAME, "number")
-        bid_ask = tuple(_cents(_string(element)) for element in elements)
+    def __stock_bid_ask(self) -> tuple[int, ...]:
+        bid_ask = tuple(_cents(number) for number in self.__inner_texts(".number"))
         if len(bid_ask) != 2:
             raise RuntimeError("failed to get bid ask")
         return bid_ask
 
-    def __click_preview_order(self):
-        sleep(self.__delay)
-        self.__by_id("previewOrderBtn").click()
+    def __click_preview_order(self) -> None:
+        self.__page.click("#previewOrderBtn")
 
-    def __click_place_order(self):
-        self.__by_id("placeOrderBtn").click()
+    def __click_place_order(self) -> None:
+        self.__page.click("#placeOrderBtn")
 
     def __place_order(self) -> bool:
         self.__click_preview_order()
@@ -562,18 +545,3 @@ class Driver:
         self.__click_place_order()
 
         return _confirm("Success")
-
-    def __by_class_name(self, class_name: str):
-        return WebDriverWait(self.__driver, self.__timeout).until(
-            EC.element_to_be_clickable((By.CLASS_NAME, class_name))
-        )
-
-    def __by_css_selector(self, css_selector: str):
-        return WebDriverWait(self.__driver, self.__timeout).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, css_selector))
-        )
-
-    def __by_id(self, id: str):
-        return WebDriverWait(self.__driver, self.__timeout).until(
-            EC.element_to_be_clickable((By.ID, id))
-        )

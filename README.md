@@ -4,29 +4,27 @@
 [![license](https://img.shields.io/github/license/qnevx/fidelipy)](https://www.apache.org/licenses/LICENSE-2.0)
 [![pypi](https://img.shields.io/pypi/v/fidelipy)](https://pypi.org/project/fidelipy/)
 
-fidelipy is a simple Python 3.7+ library for semi-automated trading on fidelity.com.
+fidelipy is a simple Python 3.9+ library for semi-automated trading on fidelity.com.
 The scope is limited to the `Trade Stocks/ETFs` simplified ticket and
 `Trade Mutual Funds` pages.
 
 ```python
 from fidelipy import Action, Driver, Unit
-from selenium.webdriver import Chrome
+from playwright.sync_api import sync_playwright
 
-with Driver(Chrome()) as driver:
+with sync_playwright() as playwright:
+    browser = playwright.chromium.launch(headless=False)
 
-    input("Log in, then press enter.")
+    with Driver(browser) as driver:
+        input("Log in, then press enter.")
 
-    try:
         print(driver.cash_available_to_trade("123456789"))
 
         print(driver.quote("BCDE"))
 
         driver.market_order("123456789", "BCDE", Action.BUY, Unit.SHARES, "1")
 
-    except Exception:
-        print("Report or fix the issue on GitHub.")
-
-    input("Press enter to log out.")
+        input("Press enter to log out.")
 ```
 
 > **Warning**
@@ -37,7 +35,12 @@ with Driver(Chrome()) as driver:
 
 ## Use
 
-1. [Install a browser driver](https://www.selenium.dev/documentation/webdriver/getting_started/install_drivers/).
+1. Install [Playwright](https://playwright.dev/python/):
+
+    ```
+    pip install playwright
+    playwright install
+    ```
 
 2. Install fidelipy:
 
@@ -49,21 +52,22 @@ with Driver(Chrome()) as driver:
 
 ## Test
 
-In interactive mode, call `__enter__()` and `__exit__()` manually instead of using the
-`with` statement:
+Use the Python interpreter in interactive mode:
 
 ```python
->>> from fidelipy import Driver
->>> from selenium.webdriver import Chrome
+>>> from fidelipy import Action, Driver, Unit
+>>> from playwright.sync_api import sync_playwright
 
->>> driver = Driver(Chrome())
+>>> playwright = sync_playwright().start()
+>>> driver = Driver(playwright.chromium.launch(headless=False))
 >>> driver.__enter__()
 >>> # Log in.
 
->>> driver.cash_available_to_trade("123456789")
->>> # More method calls.
+>>> driver.quote("BCDE")
+>>> # Call more methods.
 
 >>> driver.__exit__()
+>>> playwright.stop()
 ```
 
 ## Build

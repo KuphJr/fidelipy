@@ -2,31 +2,30 @@
 Examples
 ========
 
-Import classes from fidelipy:
+Import the required classes:
 
 .. code-block:: python
 
    from fidelipy import Action, Driver, Unit
+   from playwright.sync_api import sync_playwright
 
 Configure web browser
 =====================
 
-.. note::
-   fidelipy requires a `browser driver`_ to be installed.
-
-.. _`browser driver`: https://www.selenium.dev/documentation/webdriver/getting_started/install_drivers/
-
-Create a fidelipy Driver with a Selenium WebDriver instance:
+Create a fidelipy ``Driver`` with a Playwright ``Browser`` instance:
 
 .. code-block:: python
 
-    from selenium.webdriver import Chrome
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=False)
 
-    with Driver(Chrome()) as driver:
+        with Driver(browser) as driver:
+            # See examples below.
 
-        # See examples below.
+Playwright supports alternative `Browsers`_ and `settings`_.
 
-Substitute Chrome with Edge, Firefox, Safari, or whichever browser you prefer.
+.. _`Browsers`: https://playwright.dev/python/docs/browsers
+.. _`settings`: https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch
 
 Query basic information
 =======================
@@ -36,8 +35,7 @@ account and quotes for stocks and ETFs.
 
 .. code-block:: python
 
-    with Driver(Chrome()) as driver:
-
+    with Driver(browser) as driver:
         input("Log in, then press enter.")
 
         try:
@@ -64,8 +62,7 @@ For stocks and ETFs, it supports market, limit, marketable limit, and good-til-c
 
 .. code-block:: python
 
-    with Driver(Chrome()) as driver:
-
+    with Driver(browser) as driver:
         input("Log in, then press enter.")
 
         # Buy 1 share of BCDE.
@@ -97,8 +94,7 @@ fidelipy supports buy, sell, and exchange orders for mutual funds.
 
 .. code-block:: python
 
-    with Driver(Chrome()) as driver:
-
+    with Driver(browser) as driver:
         input("Log in, then press enter.")
 
         # Buy 100 dollars of BCDEX.

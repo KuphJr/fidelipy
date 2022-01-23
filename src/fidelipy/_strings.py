@@ -27,5 +27,4 @@ UNIT = "unit must be Unit.SHARES or Unit.DOLLARS"
 
 # Driver
 DRIVER_TIMEOUT = "timeout must be positive"
-DRIVER_DELAY = "delay must be nonnegative"
 DRIVER_MARKETABLE_LIMIT_ORDER_BUFFER = "buffer must be nonnegative"

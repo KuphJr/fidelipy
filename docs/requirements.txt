@@ -1,1 +1,1 @@
-selenium
+playwright >= 1.18.1, < 2
