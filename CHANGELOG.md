@@ -1,5 +1,9 @@
 # Changelog
 
+## [2.0.1] - 2022-01-29
+* Allow the viewport to resize with the window.
+* Fix crash after navigation on a new tab.
+
 ## [2.0.0] - 2022-01-23
 * Switch from Selenium to Playwright.
     * Fix flaky button clicks and input fills.
@@ -24,6 +28,7 @@
 ## [1.0.1] - 2022-01-02
 * Initial release.
 
+[2.0.1]: https://github.com/qnevx/fidelipy/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/qnevx/fidelipy/compare/v1.0.3...v2.0.0
 [1.0.3]: https://github.com/qnevx/fidelipy/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/qnevx/fidelipy/compare/v1.0.1...v1.0.2
