@@ -126,12 +126,12 @@ class Driver:
 
     def __init__(self, browser: Browser, timeout: int = 10):
         self.__browser = browser
+        self.__context = self.__browser.new_context(no_viewport=True)
+        self.__page = self.__context.new_page()
         self.__logger = getLogger(__name__)
 
         if timeout <= 0:
             raise ValueError(_strings.DRIVER_TIMEOUT)
-
-        self.__page = self.__browser.new_page()
         self.__page.set_default_timeout(timeout * 1000)
 
     def __enter__(self):
@@ -142,6 +142,8 @@ class Driver:
     def __exit__(self, *args) -> None:
         """Log out and close the web browser."""
         self.__page.goto(_strings.LOGOUT_URL)
+        self.__page.close()
+        self.__context.close()
         self.__browser.close()
 
     def cash_available_to_trade(self, account: str) -> Decimal:
