@@ -146,6 +146,17 @@ class Driver:
         self.__context.close()
         self.__browser.close()
 
+    def fill(self, inputId: str, inputText: str) -> None:
+        """Fills the specified inputId textbox with inputText on the current page"""
+        self.__page.fill(inputId, inputText)
+
+    def goto(self, url: str) -> None:
+        """go to a specific url"""
+        self.__page.goto(url)
+
+    def click(self, elemId: str) -> None:
+        self.__page.click(elemId)
+
     def cash_available_to_trade(self, account: str) -> Decimal:
         """Return the cash available to trade in an account.
 
@@ -473,11 +484,15 @@ class Driver:
 
     def __set_symbol(self, selector: str, symbol: str) -> None:
         symbol_input = self.__page.locator(selector)
+        print('SELECTOR')
+        print(selector)
         symbol_input.fill(symbol)
         symbol_input.press("Enter")
 
     def __stock_set_symbol(self, symbol: str) -> None:
-        self.__set_symbol("text=Symbol", symbol)
+        self.__page.fill("#eq-ticket-dest-symbol", symbol)
+        self.__page.press("#eq-ticket-dest-symbol", "Enter")
+        #self.__set_symbol("text=Symbol", symbol)
 
     def __mutual_fund_set_symbol(self, symbol: str) -> None:
         self.__stock_set_symbol(symbol)
